@@ -1,0 +1,21 @@
+{
+  "id": "pawl",
+  "name": "Pawl Clock",
+  "shortName": "Pawl Clock",
+  "version": "0.01",
+  "description": "A full of infos digital clock face, with style",
+  "icon": "app-icon.png",
+  "type": "clock",
+  "tags": "clock",
+  "readme": "README.md",
+  "supports": ["BANGLEJS2"],
+  "allow_emulator": true,
+  "storage": [
+    { "name": "pawl.app.js", "url": "app.js" },
+    { "name": "pawl.img", "url": "icon.js", "evaluate": true },
+    { "name": "pawl.settings.js", "url": "settings.js" }
+  ],
+  "data": [
+    { "name": "pawl.settings.json" }
+  ]
+}
