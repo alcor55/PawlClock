@@ -286,6 +286,9 @@ test('re-evaluating an open clock cleans the previous instance before installing
 });
 test('metadata installs canonical app, menu, library and tracks both migrated files', () => {
   const m = JSON.parse(source('metadata.json'));
+  assert.ok(typeof m.author === 'string' && m.author.length > 0);
+  assert.equal(source('ChangeLog').trim().split('\n').pop().split(':')[0], m.version);
+  assert.ok(source('app.js').includes('Pawl Clock v' + m.version));
   for (const suffix of ['app.js', 'settings.js', 'img']) assert.ok(m.storage.some(f => f.name === `${m.id}.${suffix}`));
   assert.ok(m.storage.some(f => f.name === m.id && f.url === 'lib.js'), 'App Loader discovers extensionless local modules');
   for (const f of m.storage) assert.ok(fs.existsSync(path.join(root, f.url)));
