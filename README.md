@@ -82,3 +82,13 @@ Per installazione manuale, migrazione e test, consulta [la guida tecnica](DEVELO
 **0.02**: Fix sensor ownership, wrappers and fast-loading cleanup; validate and migrate settings; implement temporary Live mode; improve LCD updates, themes and drawing efficiency; add regression and firmware emulator checks.
 
 **0.01**: First Version!
+
+## License
+
+Il materiale originale del progetto Pawl Clock è distribuito con licenza
+**Apache-2.0**. Il testo ufficiale integrale è in [LICENSE](LICENSE); copyright e
+attribuzioni sono in [NOTICE](NOTICE).
+
+Il font bitmap derivato da Lato conserva la propria licenza
+[SIL Open Font License 1.1](licenses/Lato-OFL-1.1.txt). Le licenze e le attribuzioni
+dei componenti di terzi restano valide per i rispettivi componenti.

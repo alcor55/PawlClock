@@ -1,0 +1,33 @@
+Pawl Clock
+Copyright 2025-2026 alcor55 and contributors
+Original repository: https://github.com/alcor55/PawlClock
+
+Original Pawl Clock material is licensed under the Apache License,
+Version 2.0. See LICENSE for the complete, unmodified license text.
+
+Third-party font
+----------------
+The bitmap font embedded as latoBitmap in app.js is derived from Lato,
+designed by Lukasz Dziedzic and converted with the Espruino Font Converter.
+
+Copyright (c) 2010-2014 by tyPoland Lukasz Dziedzic (team@latofonts.com) with Reserved Font Name "Lato"
+
+The Lato-derived font remains licensed under the SIL Open Font License,
+Version 1.1. It is not relicensed under Apache-2.0. The complete upstream
+copyright notice and license are included in licenses/Lato-OFL-1.1.txt.
+Font source and license: https://github.com/google/fonts/tree/main/ofl/lato
+Conversion tool: https://www.espruino.com/Font+Converter
+
+Existing asset credits
+----------------------
+The source comments in app.js credit Pixilart for drawing the icon and the
+Espruino Image Converter and Font Converter for asset conversion. These
+credits are preserved in place. Attribution to these tools does not imply
+that their own code is included or relicensed by this project.
+
+External dependencies
+---------------------
+Espruino firmware and the locale, Storage, heatshrink, widget_utils, Font8x16
+and Font6x8 modules are provided separately by their upstream projects.
+They retain their respective licenses and copyright notices; this project's
+Apache-2.0 license does not replace those licenses.
