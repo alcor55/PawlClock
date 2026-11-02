@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Run against the official EspruinoWebIDE emulator files supplied in ESPRUINO_EMU_DIR.
 // See README.md for setup. No hardware or account access is used.
 const fs = require('node:fs');
