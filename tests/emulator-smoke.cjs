@@ -1,0 +1,109 @@
+// Run against the official EspruinoWebIDE emulator files supplied in ESPRUINO_EMU_DIR.
+// See README.md for setup. No hardware or account access is used.
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const zlib = require('node:zlib');
+const dir = process.env.ESPRUINO_EMU_DIR;
+if (!dir) throw new Error('Set ESPRUINO_EMU_DIR to the downloaded emulator directory');
+const root = path.resolve(__dirname, '..');
+let received = '';
+const context = vm.createContext({ require, process, Buffer, console, __dirname: dir, __filename,
+  module: { exports: {} }, setTimeout, clearTimeout, setInterval, clearInterval,
+  onConsoleOutput: () => {}, jsUpdateGfx: () => {} });
+for (const file of ['emulator_banglejs2.js', 'emu_banglejs2.js', 'common.js']) {
+  vm.runInContext(fs.readFileSync(path.join(dir, file), 'utf8'), context, { filename: file });
+}
+context.jsRXCallback = ch => { received += String.fromCharCode(ch); };
+function send(js) {
+  received = '';
+  context.jsTransmitString('\x10' + js + '\n');
+  context.jsIdle();
+  if (/Uncaught|ERROR|Execution Interrupted/.test(received)) throw new Error(received);
+  return received;
+}
+function value(expression) {
+  const output = send(`print('RESULT:'+JSON.stringify(${expression}))`);
+  const match = output.match(/RESULT:(.*)\r?\n/);
+  assert.ok(match, output);
+  return JSON.parse(match[1]);
+}
+function upload(name, contents) {
+  for (let offset = 0; offset < contents.length; offset += 512) {
+    send(`require('Storage').write(${JSON.stringify(name)},${JSON.stringify(contents.slice(offset, offset + 512))},${offset},${contents.length})`);
+  }
+}
+function advance(ms) {
+  send(`for(let timer of global['\\xff'].timers) if(timer) timer.time-=${ms * 1000}`);
+  context.jsIdle();
+}
+function check(expression) { assert.equal(value(`!!(${expression})`), true, expression); }
+function screenshot(filename) {
+  const pixels = new Uint8Array(176 * 176 * 4);
+  context.jsGetGfxContents(pixels);
+  const scanlines = Buffer.alloc(176 * (176 * 4 + 1));
+  for (let y = 0; y < 176; y++) Buffer.from(pixels.buffer, y * 176 * 4, 176 * 4).copy(scanlines, y * (176 * 4 + 1) + 1);
+  function crc32(buffer) {
+    let crc = -1;
+    for (const byte of buffer) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+    return (crc ^ -1) >>> 0;
+  }
+  function chunk(type, data) {
+    const payload = Buffer.concat([Buffer.from(type), data]);
+    const length = Buffer.alloc(4), crc = Buffer.alloc(4);
+    length.writeUInt32BE(data.length); crc.writeUInt32BE(crc32(payload));
+    return Buffer.concat([length, payload, crc]);
+  }
+  const header = Buffer.alloc(13); header.writeUInt32BE(176); header.writeUInt32BE(176, 4); header[8] = 8; header[9] = 6;
+  fs.writeFileSync(filename, Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header),
+    chunk('IDAT', zlib.deflateSync(scanlines)), chunk('IEND', Buffer.alloc(0))]));
+}
+setTimeout(() => {
+  try {
+    context.jsInit(); context.jsIdle();
+    console.log('Firmware:', value('process.version'));
+    for (const name of ['Font8x16', 'Font6x8', 'widget_utils']) upload(name, fs.readFileSync(path.join(dir, name + '.js'), 'utf8'));
+    const metadata = JSON.parse(fs.readFileSync(path.join(root, 'metadata.json'), 'utf8'));
+    for (const file of metadata.storage.filter(f => !f.evaluate)) upload(file.name, fs.readFileSync(path.join(root, file.url), 'utf8'));
+    send("global.originalHRM=Bangle.setHRMPower; global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
+    send("require('Storage').writeJSON('pawl-clock.json',{theme:0,bgColor:0,userHeight:183,userStepGoal:7300})");
+    check("require('pawlClock').load().theme===1 && require('Storage').readJSON('pawlClock.json').userStepGoal===7300");
+    send("Bangle.getHealthStatus=function(){return {bpm:123,steps:12345}}; E.getBattery=function(){return 100}; Bangle.setLocked(false)");
+    send("eval(require('Storage').read('pawlClock.app.js'))");
+    send("for(let i=0;i<8;i++) Bangle.emit('pressure',{pressure:1012})");
+    check("barCalls[barCalls.length-1][0]===false");
+    const out = process.env.ESPRUINO_SCREENSHOT_DIR || dir;
+    fs.mkdirSync(out, { recursive: true }); screenshot(path.join(out, 'dark.png'));
+    send("global.expectedHRM=originalHRM.call(Bangle,true,'smoke'); global.expectedGPS=originalGPS.call(Bangle,true,'smoke'); global.hrmResult=Bangle.setHRMPower(true,'smoke'); global.gpsResult=Bangle.setGPSPower(true,'smoke')");
+    check('hrmResult===expectedHRM && gpsResult===expectedGPS');
+    send("Bangle.setHRMPower(false,'smoke'); Bangle.setGPSPower(false,'smoke'); Bangle.emit('drag',{b:1})");
+    advance(1600);
+    check("barCalls[barCalls.length-1][0]===true");
+    send("Bangle.emit('drag',{b:0}); Bangle.setUI()");
+    check('Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS && barCalls[barCalls.length-1][0]===false');
+    check("global['\\xff'].timers.filter(t=>t).length===baselineTimers");
+    check('!g.fillRoundedRect && !Graphics.prototype.setFontLato70');
+    send("require('Storage').writeJSON('pawlClock.json',{theme:0,offScreenUpd:false,stepIntervall:0}); eval(require('Storage').read('pawlClock.app.js'))");
+    send("for(let i=0;i<8;i++) Bangle.emit('pressure',{pressure:999})");
+    screenshot(path.join(out, 'light.png'));
+    send("Bangle.setLCDPower(false)");
+    check("barCalls[barCalls.length-1][0]===false && global['\\xff'].timers.filter(t=>t).length===baselineTimers");
+    send("Bangle.setLCDPower(true)"); check('barCalls[barCalls.length-1][0]===true');
+    send("Bangle.setUI()");
+    for (let cycle = 0; cycle < 3; cycle++) {
+      send("eval(require('Storage').read('pawlClock.app.js')); Bangle.setUI()");
+      check("global['\\xff'].timers.filter(t=>t).length===baselineTimers && Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS");
+    }
+    send("eval(require('Storage').read('pawlClock.app.js')); eval(require('Storage').read('pawlClock.app.js')); Bangle.setUI()");
+    check("global['\\xff'].timers.filter(t=>t).length===baselineTimers && Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS");
+    check("typeof canDraw==='undefined' && typeof startDataUpdates==='undefined'");
+    send("global.savedMenu; global.realShowMenu=E.showMenu; E.showMenu=function(menu){global.savedMenu=menu; return realShowMenu(menu)}; eval(require('Storage').read('pawlClock.settings.js'))(function(){})");
+    screenshot(path.join(out, 'settings.png'));
+    check("savedMenu['Step Goal'].min===1000 && savedMenu['Step Goal'].max===10000");
+    send("savedMenu['Weather Min Pressure'].onchange(1010)"); advance(1);
+    check("savedMenu['Weather Max Pressure'].min===1011");
+    console.log('Emulator smoke checks passed; screenshots:', out);
+  } catch (error) { console.error(error); process.exitCode = 1; }
+  finally { context.jsStopIdle(); }
+}, 0);
