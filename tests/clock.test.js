@@ -13,11 +13,12 @@ function harness(options = {}) {
   if (options.settings) files['pawlClock.json'] = options.settings;
   const writes = [], calls = [], draw = [], timers = new Map();
   const state = Object.assign({ lcd: true, locked: false, charging: false, steps: 1200,
-    battery: 80, hrm: false, gps: false, fix: 0, time: '12:34' }, options.state);
+    battery: 80, hrm: false, gps: false, fix: 0, time: '12:34', backlight: true }, options.state);
   let now = Date.UTC(2026, 10, 2, 12, 34, 20), serial = 0, menu, ui;
   const owners = new Set(['other-app']);
   const Bangle = new EventEmitter(), NRF = new EventEmitter();
   const hrmOwners = new Set(state.hrm ? ['other-app'] : []);
+  const powerOptions = Object.assign({ lockTimeout: 7000, lcdPowerTimeout: 0, backlightTimeout: 5000, wakeOnTouch: false }, options.powerOptions);
   let font = ['Vector', 10];
   const g = {};
   for (const method of ['clear', 'fillRect', 'fillCircle', 'fillPoly', 'drawImage', 'drawString', 'setPixel']) {
@@ -45,6 +46,10 @@ function harness(options = {}) {
     assert.equal(this, Bangle); calls.push(['gps', on, id]); state.gps = !!on; return state.gps;
   };
   Object.assign(Bangle, {
+    getOptions: () => Object.assign({}, powerOptions),
+    setOptions: value => { Object.assign(powerOptions, value); },
+    setBacklight: value => { state.backlight = value; },
+    setLocked: value => { if (state.locked !== value) { state.locked = value; Bangle.emit('lock', value); } },
     getHealthStatus: () => ({ bpm: 70, steps: state.steps }),
     isLCDOn: () => state.lcd, isLocked: () => state.locked,
     isCharging: () => state.charging, isHRMOn: () => state.hrm, isGPSOn: () => state.gps,
@@ -117,6 +122,9 @@ function sample(h, pressure = 1012) { for (let i = 0; i < 8; i++) h.emit('pressu
 function assertClean(h, expectedHRM = h.oldHRM, expectedGPS = h.oldGPS) {
   assert.equal(h.timers.size, 0);
   assert.ok(!h.hrmOwners.has('pawlClock'));
+  assert.equal(h.Bangle.getOptions().lockTimeout, 7000);
+  assert.equal(h.Bangle.getOptions().lcdPowerTimeout, 0);
+  assert.equal(h.Bangle.getOptions().backlightTimeout, 5000);
   assert.deepEqual([...h.owners], ['other-app']);
   assert.equal(h.Bangle.eventNames().length, 0);
   assert.equal(h.NRF.eventNames().length, 0);
@@ -409,4 +417,45 @@ test('the colon blinks without losing a locale suffix or breaking the Vector fal
   h.state.time = '123:35 PM'; h.redraw();
   assert.ok(h.draw.some(d => d.method === 'drawString' && d.args[0] === 'PM'));
   h.remove(); assertClean(h);
+});
+
+test('Live disables all automatic screen timeouts, enables the backlight and restores on every exit', () => {
+  for (const exit of ['release', 'lock', 'lcd', 'remove']) {
+    const h = harness({ state: { backlight: false } }); h.start();
+    const previous = h.Bangle.getOptions();
+    h.emit('drag', { b: 1 }); h.advance(1500);
+    const live = h.Bangle.getOptions();
+    for (const key of ['lockTimeout', 'lcdPowerTimeout', 'backlightTimeout']) assert.equal(live[key], 0);
+    assert.equal(live.wakeOnTouch, false); assert.equal(h.state.backlight, true);
+    h.advance(10000);
+    for (const key of ['lockTimeout', 'lcdPowerTimeout', 'backlightTimeout']) assert.equal(h.Bangle.getOptions()[key], 0);
+    if (exit === 'release') h.emit('drag', { b: 0 });
+    else if (exit === 'lock') h.emit('lock', true);
+    else if (exit === 'lcd') h.emit('lcdPower', false);
+    else h.remove();
+    assert.deepEqual(h.Bangle.getOptions(), previous);
+    if (exit === 'lock') assert.equal(h.state.locked, true);
+    if (exit === 'lcd') assert.equal(h.state.lcd, false);
+    h.remove(); assertClean(h);
+  }
+});
+test('short presses never change power settings and each Live session takes a fresh snapshot', () => {
+  const h = harness(); h.start(); const previous = h.Bangle.getOptions();
+  h.emit('drag', { b: 1 }); h.advance(1000); h.emit('drag', { b: 0 });
+  assert.deepEqual(h.Bangle.getOptions(), previous);
+  for (const timeout of [0, 30000]) {
+    h.Bangle.setOptions({ lockTimeout: timeout });
+    h.emit('drag', { b: 1 }); h.advance(1500); h.emit('drag', { b: 0 });
+    assert.equal(h.Bangle.getOptions().lockTimeout, timeout);
+  }
+  h.Bangle.setOptions(previous); h.remove(); assertClean(h);
+});
+test('Live cleanup preserves power option changes made by another component', () => {
+  const h = harness(); h.start(); h.emit('drag', { b: 1 }); h.advance(1500);
+  h.Bangle.setOptions({ lockTimeout: 45000, wakeOnTouch: true });
+  h.emit('drag', { b: 0 });
+  assert.equal(h.Bangle.getOptions().lockTimeout, 45000);
+  assert.equal(h.Bangle.getOptions().backlightTimeout, 5000);
+  assert.equal(h.Bangle.getOptions().wakeOnTouch, true);
+  h.Bangle.setOptions({ lockTimeout: 7000 }); h.remove(); assertClean(h);
 });

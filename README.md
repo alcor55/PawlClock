@@ -23,8 +23,10 @@ quadrante nelle impostazioni dell’orologio. Il pulsante fisico apre il launche
 Per attivare il **Live temporaneo**, tieni premuto lo schermo sbloccato per
 **1,5 secondi**: passi, batteria, memoria e pressione si aggiornano più spesso,
 il sensore cardiaco viene richiesto e i due punti dell’ora lampeggiano ogni secondo.
-Rilascia il dito per tornare agli intervalli salvati. Anche il blocco o lo
-spegnimento dell’LCD interrompono il Live temporaneo. I due punti tornano fissi
+Durante la pressione lo schermo resta acceso, illuminato e sbloccato: i timeout
+automatici sono sospesi. Al rilascio tornano gli intervalli e i timeout precedenti,
+con il conteggio di inattività che riparte da quel momento. Un blocco o spegnimento
+esplicito dell’LCD interrompe comunque il Live temporaneo. I due punti tornano fissi
 e la richiesta al sensore cardiaco viene rilasciata; le richieste di altre app restano attive.
 
 Il GPS non viene acceso dal quadrante. Il sensore cardiaco è richiesto solo
@@ -56,7 +58,7 @@ Per ridurre il lavoro del quadrante, una configurazione di partenza è:
 - **Pressione:** ogni 5 minuti, per distanziare i campionamenti del barometro.
 - **Memoria:** ogni 10 minuti; **batteria:** ogni 5 minuti.
 - **Passi:** ogni minuto, evitando un ridisegno a ogni passo.
-- **Debug:** disattivato. Usa il Live temporaneo solo quando serve, perché attiva anche il sensore cardiaco.
+- **Debug:** disattivato. Usa il Live temporaneo solo quando serve, perché attiva il sensore cardiaco e mantiene accesa la retroilluminazione.
 - Disattiva **Update LCD off?** se vuoi sospendere gli aggiornamenti quando l’LCD è spento.
 
 Su Bangle.js 2 l’LCD normalmente resta acceso anche con la retroilluminazione

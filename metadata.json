@@ -2,7 +2,7 @@
   "id": "pawlClock",
   "name": "Pawl Clock",
   "shortName": "Pawl Clock",
-  "version": "0.04",
+  "version": "0.05",
   "description": "A digital clock with steps, heart rate, pressure and device status",
   "icon": "app-icon.png",
   "type": "clock",

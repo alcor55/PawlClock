@@ -1,3 +1,4 @@
+0.05: Keep the LCD, backlight and unlocked screen awake during temporary Live; restore prior inactivity timeouts on release or exit without undoing manual lock/power-off or external option changes.
 0.04: Request HRM power during temporary Live and release only the clock owner on exit; blink the time separator once per second with clipped drawing; verify Live RAM refresh and cleanup.
 0.03: Preserve widget sensor wrappers on exit and detach clock callbacks; recover unavailable BPM from health data; prevent temporary Live with LCD off; support full UI redraw; add regression coverage.
 0.02: Fix sensor ownership, wrappers and fast-loading cleanup; validate and migrate settings; implement temporary Live mode; improve LCD updates, themes and drawing efficiency; add regression and firmware emulator checks.

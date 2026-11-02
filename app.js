@@ -1,5 +1,5 @@
 /*
-*    Pawl Clock v0.04
+*    Pawl Clock v0.05
 *    Icon drawn on https://www.pixilart.com/draw (must be white for color fill + transparent background).
 *    Imgs Converted with: https://www.espruino.com/Image+Converter (1 bit, transparency).
 *    Font Converted with: https://www.espruino.com/Font+Converter (compression, 1bpp)
@@ -152,6 +152,31 @@ Indigo        - 0x801f
   let longTriggered = false;
   let liveHRMRequested = false;
   let secondsTimeoutID;
+  let savedLivePowerOptions;
+  function keepLiveAwake() {
+    const options = Bangle.getOptions();
+    savedLivePowerOptions = {
+      lockTimeout: options.lockTimeout,
+      lcdPowerTimeout: options.lcdPowerTimeout,
+      backlightTimeout: options.backlightTimeout
+    };
+    Bangle.setOptions({ lockTimeout: 0, lcdPowerTimeout: 0, backlightTimeout: 0 });
+    Bangle.setBacklight(true);
+  }
+  function restoreLivePower() {
+    if (!savedLivePowerOptions) return;
+    const previous = savedLivePowerOptions;
+    savedLivePowerOptions = undefined;
+    const current = Bangle.getOptions();
+    const restore = {};
+    // Preserve any timeout deliberately changed by another component during Live.
+    Object.keys(previous).forEach(key => {
+      if (current[key] === 0) restore[key] = previous[key];
+    });
+    // Start normal inactivity timing from release, without undoing a manual lock.
+    if (Bangle.isLCDOn() && !Bangle.isLocked()) Bangle.setLocked(false);
+    if (Object.keys(restore).length) Bangle.setOptions(restore);
+  }
   function liveSeconds() {
     if (!active || !longTriggered || !Bangle.isLCDOn()) return;
     drawClock();
@@ -164,6 +189,7 @@ Indigo        - 0x801f
   function liveOn() {
     if (!active || !pressing || Bangle.isLocked() || !Bangle.isLCDOn() || longTriggered) return;
     longTriggered = true;
+    keepLiveAwake();
     liveHRMRequested = true;
     Bangle.setHRMPower(true, APP_ID);
     startDataUpdates();
@@ -182,6 +208,7 @@ Indigo        - 0x801f
         liveHRMRequested = false;
         Bangle.setHRMPower(false, APP_ID);
       }
+      restoreLivePower();
       drawClockColon(true);
       if (active) startDataUpdates();
     }

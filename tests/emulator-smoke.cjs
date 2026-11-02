@@ -70,7 +70,7 @@ setTimeout(() => {
     for (const name of ['Font8x16', 'Font6x8', 'widget_utils']) upload(name, fs.readFileSync(path.join(dir, name + '.js'), 'utf8'));
     const metadata = JSON.parse(fs.readFileSync(path.join(root, 'metadata.json'), 'utf8'));
     for (const file of metadata.storage.filter(f => !f.evaluate)) upload(file.name, fs.readFileSync(path.join(root, file.url), 'utf8'));
-    send("global.nativeHRMPower=Bangle.setHRMPower; global.hrmPowerCalls=[]; Bangle.setHRMPower=function(on,id){hrmPowerCalls.push([on,id]); return nativeHRMPower.call(Bangle,on,id)}; global.originalHRM=Bangle.setHRMPower; global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
+    send("global.nativeHRMPower=Bangle.setHRMPower; global.hrmPowerCalls=[]; Bangle.setHRMPower=function(on,id){hrmPowerCalls.push([on,id]); return nativeHRMPower.call(Bangle,on,id)}; global.originalHRM=Bangle.setHRMPower; global.normalPowerOptions=Bangle.getOptions(); global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
     send("require('Storage').writeJSON('pawl-clock.json',{theme:0,bgColor:0,userHeight:183,userStepGoal:7300})");
     check("require('pawlClock').load().theme===1 && require('Storage').readJSON('pawlClock.json').userStepGoal===7300");
     send("global.healthBpm; Bangle.getHealthStatus=function(){return {bpm:global.healthBpm,steps:12345}}; E.getBattery=function(){return 100}; Bangle.setLocked(false); global.nativeDrawString=g.drawString; global.drawnText=[]; g.drawString=function(text){drawnText.push(text); return nativeDrawString.apply(g,arguments)}");
@@ -92,6 +92,7 @@ setTimeout(() => {
     send("Bangle.setHRMPower(false,'smoke'); Bangle.setGPSPower(false,'smoke'); Bangle.emit('drag',{b:1})");
     advance(1600);
     check("barCalls[barCalls.length-1][0]===true");
+    check("Bangle.getOptions().lockTimeout===0 && Bangle.getOptions().lcdPowerTimeout===0 && Bangle.getOptions().backlightTimeout===0 && Bangle.isBacklightOn()");
     // Trace requests: this emulator cannot model the physical HRM sensor.
     check("hrmPowerCalls.some(c=>c[0]===true && c[1]==='pawlClock')");
     send("global.nativeDateNow=Date.now; global.liveTestTime=Math.floor(Date.now()/60000)*60000+20000; Date.now=function(){return liveTestTime}; Bangle.uiRedraw()");
@@ -111,6 +112,7 @@ setTimeout(() => {
     send("liveTestTime+=1000"); advance(1100);
     assert.ok(framebuffer().subarray(29 * 176 * 4, 88 * 176 * 4).equals(steadyClock), 'colon must reappear without changing neighboring digits');
     send("Date.now=nativeDateNow; Bangle.emit('drag',{b:0})");
+    check("['lockTimeout','lcdPowerTimeout','backlightTimeout'].every(k=>Bangle.getOptions()[k]===normalPowerOptions[k])");
     check("hrmPowerCalls[hrmPowerCalls.length-1][0]===false && hrmPowerCalls[hrmPowerCalls.length-1][1]==='pawlClock'");
     send("Bangle.setUI()");
     check('Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS && barCalls[barCalls.length-1][0]===false');
@@ -138,6 +140,14 @@ setTimeout(() => {
     send("eval(require('Storage').read('pawlClock.app.js')); eval(require('Storage').read('pawlClock.app.js')); Bangle.setUI()");
     check("global['\\xff'].timers.filter(t=>t).length===baselineTimers && Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS");
     check("typeof canDraw==='undefined' && typeof startDataUpdates==='undefined'");
+    // Check native option round-tripping; this emulator does not advance the
+    // hardware inactivity counter while waiting in Node.js.
+    send("Bangle.setOptions({lockTimeout:800,lcdPowerTimeout:900,backlightTimeout:700}); Bangle.setLCDPower(true); Bangle.setLocked(false); eval(require('Storage').read('pawlClock.app.js')); Bangle.emit('drag',{b:1})");
+    advance(1600);
+    check("Bangle.isLCDOn() && Bangle.isBacklightOn() && !Bangle.isLocked()");
+    send("Bangle.emit('drag',{b:0})");
+    check("Bangle.getOptions().lockTimeout===800 && Bangle.getOptions().lcdPowerTimeout===900 && Bangle.getOptions().backlightTimeout===700");
+    send("Bangle.setUI(); Bangle.setOptions(normalPowerOptions); Bangle.setLCDPower(true); Bangle.setLocked(false)");
     send("global.savedMenu; global.realShowMenu=E.showMenu; E.showMenu=function(menu){global.savedMenu=menu; return realShowMenu(menu)}; eval(require('Storage').read('pawlClock.settings.js'))(function(){})");
     screenshot(path.join(out, 'settings.png'));
     check("savedMenu['Step Goal'].min===1000 && savedMenu['Step Goal'].max===10000");

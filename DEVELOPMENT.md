@@ -30,7 +30,7 @@ node --test tests/clock.test.js
 They cover settings migration/validation, sensor ownership, timeout/retry,
 wrappers, long presses and lock, LCD wake/sleep, charging, redundant redraws,
 daily steps, cleanup, repeated fast loading, widget wrappers, BPM recovery and
-complete UI redraw.
+complete UI redraw, temporary screen timeout suspension and restoration.
 
 For a firmware smoke test, download the official emulator and modules into a
 temporary directory, then run the included runner from this repository:
@@ -56,8 +56,10 @@ redraw, repeated cleanup and settings. It writes `dark.png`, `light.png` and `se
 Set `ESPRUINO_SCREENSHOT_DIR` to choose another output directory.
 The emulator has limited sensor hardware support, so sensor power calls are
 traced and readings are injected; physical sensor behavior is not measured.
+The runner checks native timeout options and their restoration; actual inactivity
+expiry and touchscreen/backlight behavior still require the physical watch.
 
-Version 0.04 was checked with the official **Espruino 2v29.74** emulator, including
+Version 0.05 was checked with the official **Espruino 2v29.74** emulator, including
 visual inspection of both themes. On-device checks still required:
 
 1. Install over 0.01 and confirm preferences and Settings menu discovery.
