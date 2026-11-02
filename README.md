@@ -67,6 +67,6 @@ della luce o al blocco dello schermo.
 
 Con intervalli normali il quadrante rilascia il barometro dopo ogni campionamento;
 in Live lo mantiene richiesto. All’uscita rilascia la propria richiesta senza
-interrompere quelle di altre app. **Il guadagno reale di autonomia non è ancora stato misurato.**
+interrompere quelle di altre app.
 
 Per installazione manuale, migrazione e test, consulta [la guida tecnica](DEVELOPMENT.md).
