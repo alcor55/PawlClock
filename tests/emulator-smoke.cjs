@@ -70,7 +70,7 @@ setTimeout(() => {
     for (const name of ['Font8x16', 'Font6x8', 'widget_utils']) upload(name, fs.readFileSync(path.join(dir, name + '.js'), 'utf8'));
     const metadata = JSON.parse(fs.readFileSync(path.join(root, 'metadata.json'), 'utf8'));
     for (const file of metadata.storage.filter(f => !f.evaluate)) upload(file.name, fs.readFileSync(path.join(root, file.url), 'utf8'));
-    send("global.originalHRM=Bangle.setHRMPower; global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
+    send("global.nativeHRMPower=Bangle.setHRMPower; global.hrmPowerCalls=[]; Bangle.setHRMPower=function(on,id){hrmPowerCalls.push([on,id]); return nativeHRMPower.call(Bangle,on,id)}; global.originalHRM=Bangle.setHRMPower; global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
     send("require('Storage').writeJSON('pawl-clock.json',{theme:0,bgColor:0,userHeight:183,userStepGoal:7300})");
     check("require('pawlClock').load().theme===1 && require('Storage').readJSON('pawlClock.json').userStepGoal===7300");
     send("global.healthBpm; Bangle.getHealthStatus=function(){return {bpm:global.healthBpm,steps:12345}}; E.getBattery=function(){return 100}; Bangle.setLocked(false); global.nativeDrawString=g.drawString; global.drawnText=[]; g.drawString=function(text){drawnText.push(text); return nativeDrawString.apply(g,arguments)}");
@@ -92,7 +92,27 @@ setTimeout(() => {
     send("Bangle.setHRMPower(false,'smoke'); Bangle.setGPSPower(false,'smoke'); Bangle.emit('drag',{b:1})");
     advance(1600);
     check("barCalls[barCalls.length-1][0]===true");
-    send("Bangle.emit('drag',{b:0}); Bangle.setUI()");
+    // Trace requests: this emulator cannot model the physical HRM sensor.
+    check("hrmPowerCalls.some(c=>c[0]===true && c[1]==='pawlClock')");
+    send("global.nativeDateNow=Date.now; global.liveTestTime=Math.floor(Date.now()/60000)*60000+20000; Date.now=function(){return liveTestTime}; Bangle.uiRedraw()");
+    const steadyClock = framebuffer().subarray(29 * 176 * 4, 88 * 176 * 4);
+    send("liveTestTime+=1000"); advance(1100);
+    const hiddenClock = framebuffer().subarray(29 * 176 * 4, 88 * 176 * 4);
+    assert.notDeepEqual(hiddenClock, steadyClock, 'colon must disappear on odd seconds');
+    let changedPixels = 0;
+    for (let i = 0; i < steadyClock.length; i += 4) {
+      if (!steadyClock.subarray(i,i+4).equals(hiddenClock.subarray(i,i+4))) {
+        changedPixels++;
+        const x = i / 4 % 176;
+        assert.ok(x > 65 && x < 105, 'blink must not erase the hour or minute digits');
+      }
+    }
+    assert.ok(changedPixels > 0 && changedPixels < 600);
+    send("liveTestTime+=1000"); advance(1100);
+    assert.ok(framebuffer().subarray(29 * 176 * 4, 88 * 176 * 4).equals(steadyClock), 'colon must reappear without changing neighboring digits');
+    send("Date.now=nativeDateNow; Bangle.emit('drag',{b:0})");
+    check("hrmPowerCalls[hrmPowerCalls.length-1][0]===false && hrmPowerCalls[hrmPowerCalls.length-1][1]==='pawlClock'");
+    send("Bangle.setUI()");
     check('Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS && barCalls[barCalls.length-1][0]===false');
     check("global['\\xff'].timers.filter(t=>t).length===baselineTimers");
     check('!g.fillRoundedRect && !Graphics.prototype.setFontLato70');

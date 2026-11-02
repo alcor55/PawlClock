@@ -1,5 +1,5 @@
 /*
-*    Pawl Clock v0.03
+*    Pawl Clock v0.04
 *    Icon drawn on https://www.pixilart.com/draw (must be white for color fill + transparent background).
 *    Imgs Converted with: https://www.espruino.com/Image+Converter (1 bit, transparency).
 *    Font Converted with: https://www.espruino.com/Font+Converter (compression, 1bpp)
@@ -150,11 +150,25 @@ Indigo        - 0x801f
   let pressTimer;
   let pressing = false;
   let longTriggered = false;
+  let liveHRMRequested = false;
+  let secondsTimeoutID;
+  function liveSeconds() {
+    if (!active || !longTriggered || !Bangle.isLCDOn()) return;
+    drawClock();
+    drawClockColon(Math.floor(Date.now() / 1000) % 2 === 0);
+    secondsTimeoutID = setTimeout(function() {
+      secondsTimeoutID = undefined;
+      liveSeconds();
+    }, 1000 - Date.now() % 1000);
+  }
   function liveOn() {
     if (!active || !pressing || Bangle.isLocked() || !Bangle.isLCDOn() || longTriggered) return;
     longTriggered = true;
+    liveHRMRequested = true;
+    Bangle.setHRMPower(true, APP_ID);
     startDataUpdates();
     refreshAll();
+    liveSeconds();
   }
   function cancelPress() {
     if (pressTimer !== undefined) clearTimeout(pressTimer);
@@ -162,6 +176,13 @@ Indigo        - 0x801f
     pressing = false;
     if (longTriggered) {
       longTriggered = false;
+      if (secondsTimeoutID !== undefined) clearTimeout(secondsTimeoutID);
+      secondsTimeoutID = undefined;
+      if (liveHRMRequested) {
+        liveHRMRequested = false;
+        Bangle.setHRMPower(false, APP_ID);
+      }
+      drawClockColon(true);
       if (active) startDataUpdates();
     }
   }
@@ -231,6 +252,22 @@ Indigo        - 0x801f
   // *******************
   // Main clock drawing.
   //
+  let clockLayout;
+  function drawClockColon(visible) {
+    if (!canDraw() || !clockLayout) return;
+    const layout = clockLayout;
+    // Clip the original time string to the separator so its position and font
+    // remain identical, including when the full time uses the Vector fallback.
+    g.reset().setClipRect(layout.x1, 29, layout.x2, 87);
+    g.setColor(bgColor).fillRect(layout.x1, 29, layout.x2, 87);
+    if (visible) {
+      g.setColor(txtColor).setFontAlign(0, 0);
+      if (layout.fontSize) g.setFont('Vector', layout.fontSize);
+      else setLatoFont();
+      g.drawString(layout.text, 86, 62);
+    }
+    g.setClipRect(0, 0, w-1, h-1);
+  }
   let drawClock = function() {
     if (!canDraw()) return;
     let date = new Date();
@@ -244,13 +281,26 @@ Indigo        - 0x801f
     g.reset().setColor(debug ? RED : bgColor).fillRect(X, Y, X+169, Y+58); // Clear.
     g.setFontAlign(0, 0).setColor(txtColor);
     setLatoFont();
-    if (g.stringWidth(timeStr) > 169) fitText(timeStr, 169, 53);
+    let fontSize;
+    if (g.stringWidth(timeStr) > 169) {
+      fontSize = 53;
+      while (fontSize > 6 && g.setFont('Vector', fontSize).stringWidth(timeStr) > 169) fontSize--;
+      g.setFont('Vector', fontSize);
+    }
+    const colon = timeStr.indexOf(':');
+    clockLayout = undefined;
+    if (colon >= 0) {
+      const left = Math.floor(X+83 - g.stringWidth(timeStr) / 2);
+      const x1 = left + g.stringWidth(timeStr.slice(0, colon));
+      clockLayout = { text: timeStr, x1: x1, x2: x1 + g.stringWidth(':') - 1, fontSize: fontSize };
+    }
     g.drawString(timeStr, X+83, Y+33);
     g.setColor(bgColor).fillRect(125, 88, 172, 94);
     if (suffix) {
       g.setColor(txtColor).setFontAlign(1, 0);
       fitText(suffix, 47, 7).drawString(suffix, 172, 91);
     }
+    if (longTriggered) drawClockColon(Math.floor(Date.now() / 1000) % 2 === 0);
   };
 
 

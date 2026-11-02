@@ -17,6 +17,7 @@ function harness(options = {}) {
   let now = Date.UTC(2026, 10, 2, 12, 34, 20), serial = 0, menu, ui;
   const owners = new Set(['other-app']);
   const Bangle = new EventEmitter(), NRF = new EventEmitter();
+  const hrmOwners = new Set(state.hrm ? ['other-app'] : []);
   let font = ['Vector', 10];
   const g = {};
   for (const method of ['clear', 'fillRect', 'fillCircle', 'fillPoly', 'drawImage', 'drawString', 'setPixel']) {
@@ -28,7 +29,7 @@ function harness(options = {}) {
       draw.push({ method, args, font: [...font] }); return g;
     };
   }
-  for (const method of ['setColor', 'setFontAlign']) g[method] = () => g;
+  for (const method of ['setColor', 'setFontAlign', 'setClipRect']) g[method] = () => g;
   g.getWidth = g.getHeight = () => 176;
   g.reset = () => { font = ['Vector', 10]; return g; };
   g.setFont = (name, size) => { font = [name, size]; return g; };
@@ -36,7 +37,9 @@ function harness(options = {}) {
   g.stringWidth = text => String(text).length * (font[0] === 'Lato' ? 34 : (font[1] || 8) * 0.6);
   function Graphics() {}
   const oldHRM = function(on, id) {
-    assert.equal(this, Bangle); calls.push(['hrm', on, id]); state.hrm = !!on; return state.hrm;
+    assert.equal(this, Bangle); calls.push(['hrm', on, id]);
+    if (on) hrmOwners.add(id || 'anonymous'); else hrmOwners.delete(id || 'anonymous');
+    state.hrm = hrmOwners.size > 0; return state.hrm;
   };
   const oldGPS = function(on, id) {
     assert.equal(this, Bangle); calls.push(['gps', on, id]); state.gps = !!on; return state.gps;
@@ -74,7 +77,7 @@ function harness(options = {}) {
   const context = vm.createContext({
     g, Graphics, Bangle, NRF, console, Date: FakeDate,
     E: { getBattery: () => state.battery, toString: value => value, showMenu: value => { menu = value; } },
-    process: { memory: () => ({ usage: 100, total: 1000 }), env: { STORAGE: 4000000 } },
+    process: { memory: () => ({ usage: state.ramUsage === undefined ? 100 : state.ramUsage, total: 1000 }), env: { STORAGE: 4000000 } },
     atob: s => Buffer.from(s, 'base64').toString('binary'),
     require: name => { assert.ok(name in modules, `unknown module ${name}`); return modules[name]; },
     setTimeout: (fn, ms) => setTimer(fn, ms, false),
@@ -104,7 +107,7 @@ function harness(options = {}) {
     Bangle.emit(event, value);
   }
   return { files, writes, calls, draw, timers, state, owners, Bangle, NRF, g, Graphics,
-    config: modules['pawlClock'], oldHRM, oldGPS, context, advance, emit,
+    hrmOwners, config: modules['pawlClock'], oldHRM, oldGPS, context, advance, emit,
     start: () => vm.runInContext(source('app.js'), context),
     menu: () => { vm.runInContext(source('settings.js'), context)(() => {}); return menu; },
     redraw: () => ui.redraw(),
@@ -113,6 +116,7 @@ function harness(options = {}) {
 function sample(h, pressure = 1012) { for (let i = 0; i < 8; i++) h.emit('pressure', { pressure }); }
 function assertClean(h, expectedHRM = h.oldHRM, expectedGPS = h.oldGPS) {
   assert.equal(h.timers.size, 0);
+  assert.ok(!h.hrmOwners.has('pawlClock'));
   assert.deepEqual([...h.owners], ['other-app']);
   assert.equal(h.Bangle.eventNames().length, 0);
   assert.equal(h.NRF.eventNames().length, 0);
@@ -353,5 +357,56 @@ test('LCD wake restores the background after a redraw was requested while asleep
   h.emit('lcdPower', false); const count = h.draw.length; h.redraw(); assert.equal(h.draw.length, count);
   h.emit('lcdPower', true);
   assert.ok(h.draw.slice(count).some(d => d.method === 'clear'));
+  h.remove(); assertClean(h);
+});
+
+test('temporary Live requests HRM power and releases only the clock owner on every exit', () => {
+  for (const exit of ['release', 'lock', 'lcd', 'remove']) {
+    const h = harness(); h.Bangle.setHRMPower(true, 'other-app'); h.start();
+    assert.ok(!h.hrmOwners.has('pawlClock'));
+    h.emit('drag', { b: 1 }); h.advance(1500);
+    assert.ok(h.hrmOwners.has('pawlClock'));
+    h.emit('HRM', { bpm: 96.3, confidence: 90 });
+    assert.ok(h.draw.some(d => d.method === 'drawString' && d.args[0] === 96));
+    if (exit === 'release') h.emit('drag', { b: 0 });
+    else if (exit === 'lock') h.emit('lock', true);
+    else if (exit === 'lcd') h.emit('lcdPower', false);
+    else h.remove();
+    assert.ok(!h.hrmOwners.has('pawlClock')); assert.ok(h.hrmOwners.has('other-app'));
+    assert.equal(h.state.hrm, true); h.remove(); assertClean(h);
+  }
+});
+test('Live powers down an otherwise unused HRM and short presses never request it', () => {
+  const h = harness(); h.start(); h.emit('drag', { b: 1 }); h.advance(1000); h.emit('drag', { b: 0 });
+  assert.equal(h.calls.filter(c => c[0] === 'hrm').length, 0);
+  h.emit('drag', { b: 1 }); h.advance(1500); assert.equal(h.state.hrm, true);
+  h.emit('drag', { b: 0 }); assert.equal(h.state.hrm, false); h.remove(); assertClean(h);
+});
+test('Live updates changed RAM usage every second', () => {
+  const h = harness(); h.start(); h.emit('drag', { b: 1 }); h.advance(1500);
+  const count = h.draw.length; h.state.ramUsage = 230; h.advance(1000);
+  assert.ok(h.draw.slice(count).some(d => d.method === 'drawString' && d.args[0] === 23));
+  h.remove(); assertClean(h);
+});
+test('colon blinking aligns to seconds and stops with a steady colon after release', () => {
+  const h = harness(); const clips = [];
+  h.g.setClipRect = (...args) => { clips.push(args); return h.g; };
+  h.start(); h.emit('drag', { b: 1 }); h.advance(1500); // 12:34:21.500, colon hidden.
+  let count = h.draw.length; h.advance(500); // Even second, colon visible.
+  assert.ok(h.draw.slice(count).some(d => d.method === 'drawString' && d.args[0] === '12:34'));
+  assert.ok(clips.some(c => c[1] === 29 && c[3] === 87 && c[2] - c[0] < 40));
+  count = h.draw.length; h.advance(1000); // Odd second, clear only the colon region.
+  assert.ok(!h.draw.slice(count).some(d => d.method === 'drawString' && d.args[0] === '12:34'));
+  h.emit('drag', { b: 0 });
+  assert.ok(h.draw.slice(count).some(d => d.method === 'drawString' && d.args[0] === '12:34'));
+  count = clips.length; h.advance(1000); assert.equal(clips.length, count);
+  h.remove(); assertClean(h);
+});
+test('the colon blinks without losing a locale suffix or breaking the Vector fallback', () => {
+  const h = harness({ state: { time: '123:34 PM' } }); h.start(); h.emit('drag', { b: 1 }); h.advance(1500);
+  const count = h.draw.length; h.advance(500);
+  assert.ok(h.draw.slice(count).some(d => d.method === 'drawString' && d.args[0] === '123:34' && d.font[0] === 'Vector'));
+  h.state.time = '123:35 PM'; h.redraw();
+  assert.ok(h.draw.some(d => d.method === 'drawString' && d.args[0] === 'PM'));
   h.remove(); assertClean(h);
 });

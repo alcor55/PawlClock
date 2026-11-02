@@ -21,12 +21,15 @@ Installa l’app tramite un App Loader che includa Pawl Clock e selezionala come
 quadrante nelle impostazioni dell’orologio. Il pulsante fisico apre il launcher.
 
 Per attivare il **Live temporaneo**, tieni premuto lo schermo sbloccato per
-**1,5 secondi**: passi, batteria, memoria e pressione si aggiornano più spesso.
+**1,5 secondi**: passi, batteria, memoria e pressione si aggiornano più spesso,
+il sensore cardiaco viene richiesto e i due punti dell’ora lampeggiano ogni secondo.
 Rilascia il dito per tornare agli intervalli salvati. Anche il blocco o lo
-spegnimento dell’LCD interrompono il Live temporaneo. L’ora resta aggiornata al minuto.
+spegnimento dell’LCD interrompono il Live temporaneo. I due punti tornano fissi
+e la richiesta al sensore cardiaco viene rilasciata; le richieste di altre app restano attive.
 
-Il quadrante non accende autonomamente GPS o sensore cardiaco: ne mostra lo stato
-e i dati disponibili.
+Il GPS non viene acceso dal quadrante. Il sensore cardiaco è richiesto solo
+durante il Live temporaneo: i BPM cambiano all’arrivo di letture affidabili,
+quindi la prima misura può richiedere alcuni secondi.
 
 ## Impostazioni
 
@@ -53,7 +56,7 @@ Per ridurre il lavoro del quadrante, una configurazione di partenza è:
 - **Pressione:** ogni 5 minuti, per distanziare i campionamenti del barometro.
 - **Memoria:** ogni 10 minuti; **batteria:** ogni 5 minuti.
 - **Passi:** ogni minuto, evitando un ridisegno a ogni passo.
-- **Debug:** disattivato. Usa il Live temporaneo solo quando serve.
+- **Debug:** disattivato. Usa il Live temporaneo solo quando serve, perché attiva anche il sensore cardiaco.
 - Disattiva **Update LCD off?** se vuoi sospendere gli aggiornamenti quando l’LCD è spento.
 
 Su Bangle.js 2 l’LCD normalmente resta acceso anche con la retroilluminazione

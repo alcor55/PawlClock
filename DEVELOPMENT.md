@@ -57,7 +57,7 @@ Set `ESPRUINO_SCREENSHOT_DIR` to choose another output directory.
 The emulator has limited sensor hardware support, so sensor power calls are
 traced and readings are injected; physical sensor behavior is not measured.
 
-Version 0.03 was checked with the official **Espruino 2v29.74** emulator, including
+Version 0.04 was checked with the official **Espruino 2v29.74** emulator, including
 visual inspection of both themes. On-device checks still required:
 
 1. Install over 0.01 and confirm preferences and Settings menu discovery.
