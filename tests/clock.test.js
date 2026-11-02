@@ -1,4 +1,4 @@
-/* eslint-env node */
+/* eslint-env node, es6 */
 'use strict';
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
