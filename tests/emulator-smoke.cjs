@@ -39,9 +39,13 @@ function advance(ms) {
   context.jsIdle();
 }
 function check(expression) { assert.equal(value(`!!(${expression})`), true, expression); }
-function screenshot(filename) {
+function framebuffer() {
   const pixels = new Uint8Array(176 * 176 * 4);
   context.jsGetGfxContents(pixels);
+  return Buffer.from(pixels);
+}
+function screenshot(filename) {
+  const pixels = framebuffer();
   const scanlines = Buffer.alloc(176 * (176 * 4 + 1));
   for (let y = 0; y < 176; y++) Buffer.from(pixels.buffer, y * 176 * 4, 176 * 4).copy(scanlines, y * (176 * 4 + 1) + 1);
   function crc32(buffer) {
@@ -69,9 +73,17 @@ setTimeout(() => {
     send("global.originalHRM=Bangle.setHRMPower; global.originalGPS=Bangle.setGPSPower; global.baselineTimers=global['\\xff'].timers.filter(t=>t).length; global.barCalls=[]; global.originalBar=Bangle.setBarometerPower; Bangle.setBarometerPower=function(on,id){barCalls.push([on,id]); return originalBar.call(Bangle,on,id)}");
     send("require('Storage').writeJSON('pawl-clock.json',{theme:0,bgColor:0,userHeight:183,userStepGoal:7300})");
     check("require('pawlClock').load().theme===1 && require('Storage').readJSON('pawlClock.json').userStepGoal===7300");
-    send("Bangle.getHealthStatus=function(){return {bpm:123,steps:12345}}; E.getBattery=function(){return 100}; Bangle.setLocked(false)");
+    send("global.healthBpm; Bangle.getHealthStatus=function(){return {bpm:global.healthBpm,steps:12345}}; E.getBattery=function(){return 100}; Bangle.setLocked(false); global.nativeDrawString=g.drawString; global.drawnText=[]; g.drawString=function(text){drawnText.push(text); return nativeDrawString.apply(g,arguments)}");
     send("eval(require('Storage').read('pawlClock.app.js'))");
-    send("for(let i=0;i<8;i++) Bangle.emit('pressure',{pressure:1012})");
+    send("healthBpm=88; Bangle.emit('HRM',{bpm:140,confidence:50})");
+    check("drawnText.indexOf(88)>=0 && drawnText.indexOf(140)<0");
+    send("healthBpm=123; Bangle.emit('health',{bpm:123})");
+    check("drawnText.indexOf(123)>=0");
+    send("g.drawString=nativeDrawString; for(let i=0;i<8;i++) Bangle.emit('pressure',{pressure:1012})");
+    check("typeof Bangle.uiRedraw==='function'");
+    const beforeRedraw = framebuffer();
+    send("g.clear(); Bangle.uiRedraw()");
+    assert.deepEqual(framebuffer().subarray(95 * 176 * 4), beforeRedraw.subarray(95 * 176 * 4));
     check("barCalls[barCalls.length-1][0]===false");
     const out = process.env.ESPRUINO_SCREENSHOT_DIR || dir;
     fs.mkdirSync(out, { recursive: true }); screenshot(path.join(out, 'dark.png'));
@@ -90,7 +102,15 @@ setTimeout(() => {
     send("Bangle.setLCDPower(false)");
     check("barCalls[barCalls.length-1][0]===false && global['\\xff'].timers.filter(t=>t).length===baselineTimers");
     send("Bangle.setLCDPower(true)"); check('barCalls[barCalls.length-1][0]===true');
-    send("Bangle.setUI()");
+    send("Bangle.setUI(); require('Storage').writeJSON('pawlClock.json',{offScreenUpd:true}); eval(require('Storage').read('pawlClock.app.js')); Bangle.setLocked(false); Bangle.setLCDPower(false); Bangle.emit('drag',{b:1})");
+    advance(1600);
+    check("!global['\\xff'].timers.some(t=>t && t.interval===1000000)");
+    send("Bangle.setLCDPower(true); Bangle.setUI()");
+    send("eval(require('Storage').read('pawlClock.app.js')); global.observedHRM=Bangle.setHRMPower; global.observedGPS=Bangle.setGPSPower; global.widgetHRM=function(on,id){return observedHRM(on,id)}; global.widgetGPS=function(on,id){return observedGPS(on,id)}; Bangle.setHRMPower=widgetHRM; Bangle.setGPSPower=widgetGPS; Bangle.setUI()");
+    check("Bangle.setHRMPower===widgetHRM && Bangle.setGPSPower===widgetGPS");
+    send("Bangle.setHRMPower(true,'widget'); Bangle.setGPSPower(true,'widget')");
+    check("global['\\xff'].timers.filter(t=>t).length===baselineTimers");
+    send("Bangle.setHRMPower(false,'widget'); Bangle.setGPSPower(false,'widget'); Bangle.setHRMPower=originalHRM; Bangle.setGPSPower=originalGPS");
     for (let cycle = 0; cycle < 3; cycle++) {
       send("eval(require('Storage').read('pawlClock.app.js')); Bangle.setUI()");
       check("global['\\xff'].timers.filter(t=>t).length===baselineTimers && Bangle.setHRMPower===originalHRM && Bangle.setGPSPower===originalGPS");

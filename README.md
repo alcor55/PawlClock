@@ -12,11 +12,11 @@ open and restored on exit.
 Install through a Bangle.js App Loader containing this app. The loader uses
 `metadata.json` and resolves the `widget_utils`, `Font8x16` and `Font6x8` modules.
 For a manual Web IDE installation, upload those modules and every file listed in
-`storage` using its exact on-watch name, including the extensionless settings module `pawlClock`, then run
-`pawlClock.app.js`. Copying only `app.js` is insufficient.
+`storage` using its exact on-watch name, including the extensionless shared module
+`pawlClock`, then run `pawlClock.app.js`. Copying only `app.js` is insufficient.
 
 Settings are available under **Settings → App/Widget Settings → Pawl Clock**.
-Version 0.02 keeps the app ID `pawlClock` and uses matching storage filenames.
+Versions 0.02 and later keep the app ID `pawlClock` and use matching storage filenames.
 On first use it migrates preferences from `pawl-clock.json` (or the older declared
 `pawl.settings.json`) into `pawlClock.json`. Existing canonical settings take
 precedence. Migration keeps the visible Light/Dark theme even when an old theme
@@ -57,7 +57,13 @@ A 20-second watchdog releases the request if sampling stalls; periodic retries
 also recover Live mode. `--` indicates an unavailable or timed-out reading.
 Battery refresh is capped at 30 seconds while charging, with faster configured
 rates preserved. Heart rate uses recent health data and HRM events with confidence
-above 60%; this clock does not independently request HRM power.
+above 60%, plus health events. Missing BPM values recover from valid current or
+previous health data. This clock does not independently request HRM power.
+
+The clock supports a complete `Bangle.uiRedraw()` after temporary screens. Its
+sensor power observers detach on exit without overwriting wrappers subsequently
+installed by widgets; retained observers stop referencing the clock's callbacks.
+Temporary Live mode requires the LCD to be on even if off-screen updates are enabled.
 
 ## Verification
 
@@ -69,7 +75,8 @@ node --test tests/clock.test.js
 
 They cover settings migration/validation, sensor ownership, timeout/retry,
 wrappers, long presses and lock, LCD wake/sleep, charging, redundant redraws,
-daily steps, cleanup and repeated fast loading.
+daily steps, cleanup, repeated fast loading, widget wrappers, BPM recovery and
+complete UI redraw.
 
 For a firmware smoke test, download the official emulator and modules into a
 temporary directory, then run the included runner from this repository:
@@ -90,13 +97,13 @@ ESPRUINO_EMU_DIR=/tmp/pawl-clock-emulator node tests/emulator-smoke.cjs
 ```
 
 The runner uploads the real app to an isolated emulated watch, checks migration,
-wrappers, temporary Live mode, LCD wake/sleep, repeated cleanup and settings, and
-writes `dark.png`, `light.png` and `settings.png` to that temporary directory.
+widget wrappers, BPM recovery, temporary Live mode, LCD wake/sleep, complete
+redraw, repeated cleanup and settings. It writes `dark.png`, `light.png` and `settings.png` to that temporary directory.
 Set `ESPRUINO_SCREENSHOT_DIR` to choose another output directory.
 The emulator has limited sensor hardware support, so sensor power calls are
 traced and readings are injected; physical sensor behavior is not measured.
 
-Version 0.02 was checked with the official **Espruino 2v29.74** emulator, including
+Version 0.03 was checked with the official **Espruino 2v29.74** emulator, including
 visual inspection of both themes. On-device checks still required:
 
 1. Install over 0.01 and confirm preferences and Settings menu discovery.

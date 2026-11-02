@@ -1,5 +1,5 @@
 /*
-*    Pawl Clock v0.02
+*    Pawl Clock v0.03
 *    Icon drawn on https://www.pixilart.com/draw (must be white for color fill + transparent background).
 *    Imgs Converted with: https://www.espruino.com/Image+Converter (1 bit, transparency).
 *    Font Converted with: https://www.espruino.com/Font+Converter (compression, 1bpp)
@@ -151,7 +151,7 @@ Indigo        - 0x801f
   let pressing = false;
   let longTriggered = false;
   function liveOn() {
-    if (!active || !pressing || Bangle.isLocked() || !canDraw() || longTriggered) return;
+    if (!active || !pressing || Bangle.isLocked() || !Bangle.isLCDOn() || longTriggered) return;
     longTriggered = true;
     startDataUpdates();
     refreshAll();
@@ -167,7 +167,7 @@ Indigo        - 0x801f
   }
   function liveCtrl(e) {
     if (!active) return;
-    if (!e.b || Bangle.isLocked() || !canDraw()) {
+    if (!e.b || Bangle.isLocked() || !Bangle.isLCDOn()) {
       cancelPress();
       return;
     }
@@ -299,8 +299,17 @@ Indigo        - 0x801f
   // *******************
   // HR Info drawing.
   //
+  function validBpm(value) {
+    return typeof value === 'number' && isFinite(value) && value > 0;
+  }
+  function readHealthBpm() {
+    const current = Bangle.getHealthStatus().bpm;
+    const previous = validBpm(current) ? current : Bangle.getHealthStatus("last").bpm;
+    return validBpm(previous) ? Math.round(previous) : undefined;
+  }
   let drawBpm = function() {
     if (!canDraw()) return;
+    if (!validBpm(bp)) bp = readHealthBpm();
     let hr = (!bp || !isFinite(bp)) ? '--' : bp;
     if (unchanged('bpm', hr + ':' + Bangle.isHRMOn())) return;
     let X = 110;
@@ -322,21 +331,19 @@ Indigo        - 0x801f
     }
   };
   // HR update events.
-  let hp;
-  const setHRMPower = function(on, id) {
-    const result = hp.call(Bangle, on, id);
-    drawBpm();
-    return result;
-  };
-  var bp = Math.round(Bangle.getHealthStatus().bpm||Bangle.getHealthStatus("last").bpm);
+  let detachHRMPower;
+  let bp = readHealthBpm();
   let drawBpmOnHRM = function(e) {
     if (!active) return;
-    if (e && e.confidence > 60 && isFinite(e.bpm) && e.bpm > 0) bp = Math.round(e.bpm);
-    if (bp == 0) bp = Math.round(Bangle.getHealthStatus().bpm||Bangle.getHealthStatus("last").bpm);
+    if (e && e.confidence > 60 && validBpm(e.bpm)) bp = Math.round(e.bpm);
     drawBpm();
   };
-
-
+  function onHealth(e) {
+    if (!active) return;
+    const latest = e && validBpm(e.bpm) ? Math.round(e.bpm) : readHealthBpm();
+    if (validBpm(latest)) bp = latest;
+    drawBpm();
+  }
 
   // *******************
   // Donut Chart drawing.
@@ -438,13 +445,7 @@ Indigo        - 0x801f
     g.fillPoly([X+10,Y+4,X+13,Y+6,X+7,Y+13,X+5,Y+10]);
   };
   // GPS info update events.
-  let oldSetGPSPower;
-  const setGPSPower = function(on, id) {
-    var isGPSon = oldSetGPSPower.call(Bangle, on, id);
-    drawGPS();
-    return isGPSon;
-  };
-
+  let detachGPSPower;
 
   // *******************
   // Battery drawing.
@@ -615,6 +616,11 @@ Indigo        - 0x801f
     drawMemory();
     drawWeather(lastPressure);
   }
+  function redrawAll() {
+    if (!canDraw()) return;
+    drawTheme();
+    refreshAll();
+  }
   function onCharging() {
     if (!active) return;
     setBatteryTimer();
@@ -633,7 +639,7 @@ Indigo        - 0x801f
       if (mainTimeoutID !== undefined) clearTimeout(mainTimeoutID);
       mainTimeoutID = undefined;
     } else if (on) {
-      refreshAll();
+      redrawAll();
       startDataUpdates();
       mainLoop();
     }
@@ -644,6 +650,7 @@ Indigo        - 0x801f
   //
   Bangle.setUI({
     mode : "clock",
+    redraw : redrawAll,
     remove : function() {
       if (!active) return;
       active = false;
@@ -657,23 +664,22 @@ Indigo        - 0x801f
       Bangle.removeListener('lcdPower', onLCDPower);
       Bangle.removeListener('lock', onLock);
       Bangle.removeListener('HRM', drawBpmOnHRM);
+      Bangle.removeListener('health', onHealth);
       Bangle.removeListener('GPS', drawGPS);
       Bangle.removeListener('midnight', drawSteps);
       Bangle.removeListener('drag', liveCtrl);
       NRF.removeListener('connect', drawBLE);
       NRF.removeListener('disconnect', drawBLE);
-      Bangle.setHRMPower = hp;
-      Bangle.setGPSPower = oldSetGPSPower;
+      detachHRMPower();
+      detachGPSPower();
       g.reset().clear();
       widget_utils.show();
     }
   });
 
-  // Install wrappers after setUI has removed any previous app's wrappers.
-  hp = Bangle.setHRMPower;
-  oldSetGPSPower = Bangle.setGPSPower;
-  Bangle.setHRMPower = setHRMPower;
-  Bangle.setGPSPower = setGPSPower;
+  // Install observers after setUI has detached the previous clock's observers.
+  detachHRMPower = config.observePower(Bangle, 'setHRMPower', drawBpm);
+  detachGPSPower = config.observePower(Bangle, 'setGPSPower', drawGPS);
 
   // *******************
   // Run only on the first app execution.
@@ -683,6 +689,7 @@ Indigo        - 0x801f
     Bangle.on('lcdPower', onLCDPower);
     Bangle.on('lock', onLock);
     Bangle.on('HRM', drawBpmOnHRM);
+    Bangle.on('health', onHealth);
     Bangle.on('GPS', drawGPS);
     Bangle.on('midnight', drawSteps);
     Bangle.on('drag', liveCtrl);
@@ -694,8 +701,7 @@ Indigo        - 0x801f
       widgetDrawTimer = undefined;
       if (active) Bangle.drawWidgets();
     }, 0);
-    drawTheme();
-    refreshAll();
+    redrawAll();
     startDataUpdates();
     mainLoop();
   };

@@ -55,3 +55,19 @@ exports.save = function(settings) {
 };
 exports.themes = themes;
 exports.intervals = intervals;
+
+// A widget may wrap this observer after installation. Detach the notification
+// without overwriting that widget, and release the callback's clock scope.
+exports.observePower = function(target, key, onChange) {
+  const original = target[key];
+  const wrapper = function(on, id) {
+    const result = original.apply(target, arguments);
+    if (onChange) onChange();
+    return result;
+  };
+  target[key] = wrapper;
+  return function() {
+    onChange = undefined;
+    if (target[key] === wrapper) target[key] = original;
+  };
+};

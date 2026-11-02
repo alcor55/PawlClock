@@ -1,2 +1,3 @@
+0.03: Preserve widget sensor wrappers on exit and detach clock callbacks; recover unavailable BPM from health data; prevent temporary Live with LCD off; support full UI redraw; add regression coverage.
 0.02: Fix sensor ownership, wrappers and fast-loading cleanup; validate and migrate settings; implement temporary Live mode; improve LCD updates, themes and drawing efficiency; add regression and firmware emulator checks.
 0.01: First Version!

@@ -107,16 +107,17 @@ function harness(options = {}) {
     config: modules['pawlClock'], oldHRM, oldGPS, context, advance, emit,
     start: () => vm.runInContext(source('app.js'), context),
     menu: () => { vm.runInContext(source('settings.js'), context)(() => {}); return menu; },
+    redraw: () => ui.redraw(),
     currentMenu: () => menu, remove: () => ui.remove(), decompressCount: () => decompressCount };
 }
 function sample(h, pressure = 1012) { for (let i = 0; i < 8; i++) h.emit('pressure', { pressure }); }
-function assertClean(h) {
+function assertClean(h, expectedHRM = h.oldHRM, expectedGPS = h.oldGPS) {
   assert.equal(h.timers.size, 0);
   assert.deepEqual([...h.owners], ['other-app']);
   assert.equal(h.Bangle.eventNames().length, 0);
   assert.equal(h.NRF.eventNames().length, 0);
-  assert.equal(h.Bangle.setHRMPower, h.oldHRM);
-  assert.equal(h.Bangle.setGPSPower, h.oldGPS);
+  assert.equal(h.Bangle.setHRMPower, expectedHRM);
+  assert.equal(h.Bangle.setGPSPower, expectedGPS);
   assert.equal(h.g.fillRoundedRect, undefined);
   assert.equal(h.Graphics.prototype.setFontLato70, undefined);
 }
@@ -277,4 +278,80 @@ test('metadata installs canonical app, menu, library and tracks both migrated fi
   assert.ok(m.storage.some(f => f.name === m.id && f.url === 'lib.js'), 'App Loader discovers extensionless local modules');
   for (const f of m.storage) assert.ok(fs.existsSync(path.join(root, f.url)));
   for (const name of ['pawlClock.json', 'pawl-clock.json', 'pawl.settings.json']) assert.ok(m.data.some(f => f.name === name));
+});
+
+test('widget wrappers installed while open survive removal and no longer notify the clock', () => {
+  const h = harness(); h.start();
+  const hrmObserver = h.Bangle.setHRMPower, gpsObserver = h.Bangle.setGPSPower;
+  let hrmCalls = 0, gpsCalls = 0;
+  function widgetHRM(on, id) { hrmCalls++; return hrmObserver(on, id); }
+  function widgetGPS(on, id) { gpsCalls++; return gpsObserver(on, id); }
+  h.Bangle.setHRMPower = widgetHRM; h.Bangle.setGPSPower = widgetGPS;
+  h.remove(); assertClean(h, widgetHRM, widgetGPS);
+  const count = h.draw.length;
+  assert.equal(h.Bangle.setHRMPower(true, 'widget'), true);
+  assert.equal(h.Bangle.setGPSPower(true, 'widget'), true);
+  assert.equal(hrmCalls, 1); assert.equal(gpsCalls, 1); assert.equal(h.draw.length, count);
+  h.start(); h.remove(); assertClean(h, widgetHRM, widgetGPS);
+});
+test('power observation detaches its callback while preserving parameters and later wrappers', () => {
+  const h = harness(); let notifications = 0;
+  const detach = h.config.observePower(h.Bangle, 'setHRMPower', () => notifications++);
+  const observer = h.Bangle.setHRMPower;
+  function laterWrapper(on, id) { return observer(on, id); }
+  h.Bangle.setHRMPower = laterWrapper;
+  assert.equal(laterWrapper(true, 'widget'), true); assert.equal(notifications, 1);
+  detach(); detach();
+  assert.equal(h.Bangle.setHRMPower, laterWrapper);
+  assert.equal(laterWrapper(false, 'widget'), false); assert.equal(notifications, 1);
+  assert.deepEqual(h.calls, [['hrm', true, 'widget'], ['hrm', false, 'widget']]);
+});
+test('missing BPM recovers from valid previous health data on a low-confidence HRM event', () => {
+  const h = harness(); let current, previous;
+  h.Bangle.getHealthStatus = period => ({ bpm: period === 'last' ? previous : current, steps: 1200 });
+  h.start(); previous = 88.4;
+  h.emit('HRM', { bpm: 140, confidence: 50 });
+  assert.ok(h.draw.some(d => d.method === 'drawString' && d.args[0] === 88));
+  assert.ok(!h.draw.some(d => d.method === 'drawString' && d.args[0] === 140));
+  h.remove(); assertClean(h);
+});
+test('health events recover BPM without HRM events and reject invalid replacements', () => {
+  const h = harness(); h.Bangle.getHealthStatus = () => ({ steps: 1200 }); h.start();
+  h.emit('health', { bpm: 91.4 });
+  assert.ok(h.draw.some(d => d.method === 'drawString' && d.args[0] === 91));
+  const count = h.draw.length;
+  for (const bpm of [NaN, Infinity, -1, 0, '200']) h.emit('health', { bpm });
+  assert.equal(h.draw.length, count); h.remove(); assertClean(h);
+});
+test('LCD-off events cannot activate temporary Live even with off-screen updates enabled', () => {
+  const h = harness({ settings: { offScreenUpd: true } }); h.start(); h.emit('lcdPower', false);
+  h.emit('drag', { b: 1 }); h.advance(1500);
+  assert.equal(h.Bangle.listenerCount('step'), 0);
+  h.emit('lcdPower', true); h.emit('drag', { b: 1 });
+  // Also guard the timeout itself if power changes before its callback is handled.
+  h.state.lcd = false; h.advance(1500);
+  assert.equal(h.Bangle.listenerCount('step'), 0);
+  h.emit('drag', { b: 0 }); h.emit('lcdPower', true); h.emit('drag', { b: 1 }); h.advance(1500);
+  assert.equal(h.Bangle.listenerCount('step'), 1);
+  h.emit('lcdPower', false); assert.equal(h.Bangle.listenerCount('step'), 0);
+  h.remove(); assertClean(h);
+});
+test('UI redraw restores the full face without changing timers or reacquiring sensors', () => {
+  const h = harness(); h.start(); h.advance(0); sample(h);
+  const timers = [...h.timers.keys()], barCalls = h.calls.length;
+  h.g.clear(); const count = h.draw.length; h.redraw();
+  const restored = h.draw.slice(count);
+  assert.ok(restored.some(d => d.method === 'clear'));
+  for (const text of ['12:34', 'Mon', 1200, 70, '80%', '1012']) {
+    assert.ok(restored.some(d => d.method === 'drawString' && d.args[0] === text), String(text));
+  }
+  assert.deepEqual([...h.timers.keys()], timers); assert.equal(h.calls.length, barCalls);
+  h.remove(); const after = h.draw.length; h.redraw(); assert.equal(h.draw.length, after); assertClean(h);
+});
+test('LCD wake restores the background after a redraw was requested while asleep', () => {
+  const h = harness({ settings: { offScreenUpd: false } }); h.start(); h.advance(0);
+  h.emit('lcdPower', false); const count = h.draw.length; h.redraw(); assert.equal(h.draw.length, count);
+  h.emit('lcdPower', true);
+  assert.ok(h.draw.slice(count).some(d => d.method === 'clear'));
+  h.remove(); assertClean(h);
 });
